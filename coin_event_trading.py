@@ -1204,19 +1204,80 @@ html_doc = """
 """
 
 from bs4 import BeautifulSoup
+import os
+import sqlite3
+
+class DatabaseWorker:
+
+    def __new__(cls):
+        """ Signleton Pattern. Checks for existing instance before creating a new instance """
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(DatabaseWorker, cls).__new__(cls)
+        return cls.instance
+
+    def __init__(self):
+        sqlite_file = os.path.join(os.path.dirname(__file__), 'db.sqlite')
+        self.conn = sqlite3.connect(sqlite_file)
+        self.c = self.conn.cursor()
+
+        self.create_database()
+
+    def create_database(self):
+        """ Create the database if it does not already exist """
+        create_table_statement = """
+            CREATE TABLE
+            IF NOT EXISTS events (
+             id integer PRIMARY KEY,
+             coin text NOT NULL,
+             event_date text,
+             description text,
+             posted_date text,
+             validation integer,
+             buy_low real,
+             buy_avg real,
+             buy_high real,
+             sell_high real,
+             sell_date text,
+             high_btc real,
+             late_sell_low real,
+             late_sell_avg real,
+             late_sell_high real
+            );
+        """
+        self.c.execute(create_table_statement)
+
+        self.conn.commit()
+
+
+    def add_record(self, data):
+        """ Add a new record to the database with supplied dictionary """
+        sql = 'INSERT INTO events ('
+
+        keys = list(data)
+        values = list(data.values())
+        values = list(map(lambda x: "\'" + x + "\'", values))
+
+        sql += ', '.join(keys) + ') VALUES ('
+        sql += ', '.join(values) + ');'
+        self.c.execute(sql)
+        self.conn.commit()
+
+    def __del__(self):
+        """ Close the database when the object is destroyed """
+        # TODO replace with https://en.wikibooks.org/wiki/Python_Programming/Context_Managers
+        self.conn.close()
+
+
 
 def main():
     """ Main entry point of the app """
-    db = get_or_create_db()
+
     scrape()
 
-def get_or_create_db():
-    """ Returns and/or creates the SQLite database """
-    return 0
 
 def scrape():
-    print("HELLO")
-
+    """ Scrapes the event data and adds it to the database """
+    db = DatabaseWorker()
     scraper = BeautifulSoup(html_doc, 'html.parser')
     for item in scraper.find_all('div', class_='content-box-general'):
         event_date = item.h5.strong.get_text()
@@ -1224,6 +1285,12 @@ def scrape():
         description = item.h5.next_sibling.next_sibling.next_sibling.next_sibling.get_text()
         posted_date = item.find('p', class_='added-date').get_text()
         validation = item.find('div', class_='progress-bar').get('aria-valuenow')
+        db.add_record({ 'event_date': event_date,
+                        'coin': coin,
+                        'description': description,
+                        'posted_date': posted_date,
+                        'validation': validation})
+    # TODO get pages
 
 def get_prices():
     """ Get prices for all past events """
