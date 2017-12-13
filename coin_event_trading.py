@@ -1257,7 +1257,7 @@ class DatabaseWorker:
     def add_record(self, data):
         """ Add a new record to the database with supplied dictionary """
 
-        if not self.already_exists_with_different_event_type(data):
+        if not self.already_exists(data, 'event_type'):
             sql = 'INSERT INTO events ('
 
             keys = list(data)
@@ -1269,18 +1269,19 @@ class DatabaseWorker:
             self.c.execute(sql)
             self.conn.commit()
 
-    def already_exists(self, data):
-        """ Check to see if record already exists in the database. This is used
-        for scraping the website to see if we can stop scraping because we are
-        up to date. The validity can change, so we ignore that. """
+    def already_exists(self, data, exclude=None):
+        """ Check to see if record already exists in the database. Optional
+        param to exclude a passed key from the database query. """
+
         sql = 'SELECT * FROM events WHERE '
 
         keys = list(data)
         values = list(data.values())
 
-        validation_index = keys.index('validation')
-        del keys[validation_index]
-        del values[validation_index]
+        if exclude:
+            exclude_index = keys.index(exclude)
+            del keys[exclude_index]
+            del values[exclude_index]
 
         values = list(map(lambda x: "\'" + x + "\'", values))
 
@@ -1294,34 +1295,6 @@ class DatabaseWorker:
         rows = self.c.fetchall()
 
         return len(rows) > 0
-
-    def already_exists_with_different_event_type(self, data):
-        """ Check to see if record already exists in the database, but with a
-        different category """
-
-        sql = 'SELECT * FROM events WHERE '
-
-        keys = list(data)
-        values = list(data.values())
-
-        event_type_index = keys.index('event_type')
-        del keys[event_type_index]
-        del values[event_type_index]
-
-        values = list(map(lambda x: "\'" + x + "\'", values))
-
-        where_statement = []
-        for i, val in enumerate(keys):
-            where_statement.append("{0} = {1}".format(keys[i], values[i]))
-
-        sql += ' AND '.join(where_statement) + ';'
-
-        result = self.c.execute(sql)
-        rows = self.c.fetchall()
-
-        return len(rows) > 0
-
-
 
     def __del__(self):
         """ Close the database when the object is destroyed """
@@ -1373,7 +1346,7 @@ def scrape():
                         'posted_date': posted_date,
                         'validation': validation,
                         'event_type': value}
-                if (db.already_exists(data)):
+                if (db.already_exists(data, 'validation')):
                     # up to date, move on to next category
                     print("{0}: up to date".format(value))
                     up_to_date = True
