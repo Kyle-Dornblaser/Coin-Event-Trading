@@ -1206,11 +1206,13 @@ html_doc = """
 from bs4 import BeautifulSoup
 import os
 import sqlite3
+import urllib.request
 
 class DatabaseWorker:
 
     def __new__(cls):
-        """ Signleton Pattern. Checks for existing instance before creating a new instance """
+        """ Signleton Pattern. Checks for existing instance before creating a
+        new instance """
         if not hasattr(cls, 'instance'):
             cls.instance = super(DatabaseWorker, cls).__new__(cls)
         return cls.instance
@@ -1224,6 +1226,8 @@ class DatabaseWorker:
 
     def create_database(self):
         """ Create the database if it does not already exist """
+
+        print('Creating database if it does not already exist')
         create_table_statement = """
             CREATE TABLE
             IF NOT EXISTS events (
@@ -1233,6 +1237,7 @@ class DatabaseWorker:
              description text,
              posted_date text,
              validation integer,
+             event_type text,
              buy_low real,
              buy_avg real,
              buy_high real,
@@ -1251,16 +1256,72 @@ class DatabaseWorker:
 
     def add_record(self, data):
         """ Add a new record to the database with supplied dictionary """
-        sql = 'INSERT INTO events ('
+
+        if not self.already_exists_with_different_event_type(data):
+            sql = 'INSERT INTO events ('
+
+            keys = list(data)
+            values = list(data.values())
+            values = list(map(lambda x: "\'" + x + "\'", values))
+
+            sql += ', '.join(keys) + ') VALUES ('
+            sql += ', '.join(values) + ');'
+            self.c.execute(sql)
+            self.conn.commit()
+
+    def already_exists(self, data):
+        """ Check to see if record already exists in the database. This is used
+        for scraping the website to see if we can stop scraping because we are
+        up to date. The validity can change, so we ignore that. """
+        sql = 'SELECT * FROM events WHERE '
 
         keys = list(data)
         values = list(data.values())
+
+        validation_index = keys.index('validation')
+        del keys[validation_index]
+        del values[validation_index]
+
         values = list(map(lambda x: "\'" + x + "\'", values))
 
-        sql += ', '.join(keys) + ') VALUES ('
-        sql += ', '.join(values) + ');'
-        self.c.execute(sql)
-        self.conn.commit()
+        where_statement = []
+        for i, val in enumerate(keys):
+            where_statement.append("{0} = {1}".format(keys[i], values[i]))
+
+        sql += ' AND '.join(where_statement) + ';'
+
+        result = self.c.execute(sql)
+        rows = self.c.fetchall()
+
+        return len(rows) > 0
+
+    def already_exists_with_different_event_type(self, data):
+        """ Check to see if record already exists in the database, but with a
+        different category """
+
+        sql = 'SELECT * FROM events WHERE '
+
+        keys = list(data)
+        values = list(data.values())
+
+        event_type_index = keys.index('event_type')
+        del keys[event_type_index]
+        del values[event_type_index]
+
+        values = list(map(lambda x: "\'" + x + "\'", values))
+
+        where_statement = []
+        for i, val in enumerate(keys):
+            where_statement.append("{0} = {1}".format(keys[i], values[i]))
+
+        sql += ' AND '.join(where_statement) + ';'
+
+        result = self.c.execute(sql)
+        rows = self.c.fetchall()
+
+        return len(rows) > 0
+
+
 
     def __del__(self):
         """ Close the database when the object is destroyed """
@@ -1277,20 +1338,57 @@ def main():
 
 def scrape():
     """ Scrapes the event data and adds it to the database """
+    print('Scraping events')
+
+    base_url = 'http://coinmarketcal.com'
+
+    categories = {0: 'Release',
+                    1: 'Rebranding',
+                    2: 'Coin Supply',
+                    3: 'Exchange',
+                    4: 'Conference',
+                    5: 'Community Event',
+                    6: 'Other'}
+
     db = DatabaseWorker()
-    scraper = BeautifulSoup(html_doc, 'html.parser')
-    for item in scraper.find_all('div', class_='content-box-general'):
-        event_date = item.h5.strong.get_text()
-        coin = item.h5.next_sibling.next_sibling.strong.get_text()
-        description = item.h5.next_sibling.next_sibling.next_sibling.next_sibling.get_text()
-        posted_date = item.find('p', class_='added-date').get_text()
-        validation = item.find('div', class_='progress-bar').get('aria-valuenow')
-        db.add_record({ 'event_date': event_date,
+
+    for key, value in categories.items():
+        print ("{0}:{1}".format(key, value))
+
+        html_doc = urllib.request.urlopen("{0}/pastevents?form%5bcategories%5d%5b%5d={1}".format(base_url, key))
+        scraper = BeautifulSoup(html_doc, 'html.parser')
+
+        # emulate do while
+        up_to_date = False
+        while not up_to_date:
+            for item in scraper.find_all('div', class_='content-box-general'):
+                event_date = item.h5.strong.get_text()
+                coin = item.h5.next_sibling.next_sibling.strong.get_text()
+                description = item.h5.next_sibling.next_sibling.next_sibling.next_sibling.get_text()
+                posted_date = item.find('p', class_='added-date').get_text()
+                validation = item.find('div', class_='progress-bar').get('aria-valuenow')
+                data = {'event_date': event_date,
                         'coin': coin,
                         'description': description,
                         'posted_date': posted_date,
-                        'validation': validation})
-    # TODO get pages
+                        'validation': validation,
+                        'event_type': value}
+                if (db.already_exists(data)):
+                    # up to date, move on to next category
+                    print("{0}: up to date".format(value))
+                    up_to_date = True
+                    break;
+                else:
+                    print("{0}: adding record for {1}".format(value, coin))
+                    db.add_record(data)
+
+            next_page = scraper.find('i', class_='fa fa-angle-right')
+            if (next_page):
+                next_page = next_page.parent.get('href')
+                html_doc = urllib.request.urlopen("{0}{1}".format(base_url, next_page))
+                scraper = BeautifulSoup(html_doc, 'html.parser')
+            else:
+                up_to_date = True;
 
 def get_prices():
     """ Get prices for all past events """
