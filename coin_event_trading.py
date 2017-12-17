@@ -317,11 +317,9 @@ def generate_html():
                         with tag('th'):
                             text('Late High Multiple')
                         with tag('th'):
-                            text('Posted Date')
-                        with tag('th'):
-                            text('Event Date')
-                        with tag('th'):
                             text('Sell Date')
+                        with tag('th'):
+                            text('Num Days')
                     for row in rows:
                         row = list(map(lambda x: '' if x is None else x, row))
                         with tag('tr'):
@@ -362,14 +360,12 @@ def generate_html():
                                 else:
                                     text("{0:.2f}".format(row[LATE_SELL_HIGH_INDEX]/row[BUY_LOW_INDEX]))
                             with tag('td'):
-                                text(datetime.datetime.fromtimestamp(row[POSTED_DATE_INDEX]).strftime('%Y-%m-%d'))
-                            with tag('td'):
-                                text(datetime.datetime.fromtimestamp(row[EVENT_DATE_INDEX]).strftime('%Y-%m-%d'))
-                            with tag('td'):
                                 if (row[SELL_DATE_INDEX] == ''):
                                     text('')
                                 else:
                                     text(datetime.datetime.fromtimestamp(row[SELL_DATE_INDEX]).strftime('%Y-%m-%d'))
+                            with tag('td'):
+                                text(round((row[EVENT_DATE_INDEX] - row[POSTED_DATE_INDEX]) / 86400))
 
     file = open(os.path.join(os.path.dirname(__file__), 'index.html'),'w',  encoding='utf-8')
     file.write(doc.getvalue())
