@@ -28,9 +28,9 @@ BUY_HIGH_INDEX = 9
 SELL_HIGH_INDEX = 10
 SELL_DATE_INDEX = 11
 HIGH_BTC_INDEX = 12
-LATE_SELL_LOW = 13
-LATE_SELL_AVG = 14
-LATE_SELL_HIGH = 15
+LATE_SELL_LOW_INDEX = 13
+LATE_SELL_AVG_INDEX = 14
+LATE_SELL_HIGH_INDEX = 15
 
 class DatabaseWorker:
 
@@ -68,9 +68,9 @@ class DatabaseWorker:
              sell_high real,
              sell_date integer,
              high_btc real,
-             late_sell_low real,
-             late_sell_avg real,
-             late_sell_high real
+             LATE_SELL_LOW_INDEX real,
+             LATE_SELL_AVG_INDEX real,
+             LATE_SELL_HIGH_INDEX real
             );
         """
         self.c.execute(create_table_statement)
@@ -346,21 +346,21 @@ def generate_html():
                                 if (row[SELL_HIGH_INDEX] == '' or row[BUY_LOW_INDEX] == ''):
                                     text('')
                                 else:
-                                    text("{0:.2f}".format(row[LATE_SELL_LOW]/row[BUY_LOW_INDEX]))
+                                    text("{0:.2f}".format(row[SELL_HIGH_INDEX]/row[BUY_LOW_INDEX]))
                             with tag('td'):
-                                text(row[LATE_SELL_LOW])
+                                text(row[LATE_SELL_LOW_INDEX])
                             with tag('td'):
-                                text(row[LATE_SELL_HIGH])
+                                text(row[LATE_SELL_HIGH_INDEX])
                             with tag('td'):
-                                if (row[LATE_SELL_HIGH] == '' or row[BUY_HIGH_INDEX] == ''):
+                                if (row[LATE_SELL_HIGH_INDEX] == '' or row[BUY_HIGH_INDEX] == ''):
                                     text('')
                                 else:
-                                    text("{0:.2f}".format(row[LATE_SELL_HIGH]/row[BUY_HIGH_INDEX]))
+                                    text("{0:.2f}".format(row[LATE_SELL_HIGH_INDEX]/row[BUY_HIGH_INDEX]))
                             with tag('td'):
-                                if (row[LATE_SELL_HIGH] == '' or row[BUY_LOW_INDEX] == ''):
+                                if (row[LATE_SELL_HIGH_INDEX] == '' or row[BUY_LOW_INDEX] == ''):
                                     text('')
                                 else:
-                                    text("{0:.2f}".format(row[LATE_SELL_HIGH]/row[BUY_LOW_INDEX]))
+                                    text("{0:.2f}".format(row[LATE_SELL_HIGH_INDEX]/row[BUY_LOW_INDEX]))
                             with tag('td'):
                                 text(datetime.datetime.fromtimestamp(row[POSTED_DATE_INDEX]).strftime('%Y-%m-%d'))
                             with tag('td'):
