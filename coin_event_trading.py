@@ -9,10 +9,28 @@ __license__ = "MIT"
 
 from bs4 import BeautifulSoup
 import datetime
+from yattag import Doc
 import json
 import os
 import sqlite3
 import urllib.request
+
+ID_INDEX = 0
+COIN_INDEX = 1
+EVENT_DATE_INDEX = 2
+DESCRIPTION_INDEX = 3
+POSTED_DATE_INDEX = 4
+VALIDATION_INDEX = 5
+EVENT_TYPE_INDEX = 6
+BUY_LOW_INDEX = 7
+BUY_AVG_INDEX = 8
+BUY_HIGH_INDEX = 9
+SELL_HIGH_INDEX = 10
+SELL_DATE_INDEX = 11
+HIGH_BTC_INDEX = 12
+LATE_SELL_LOW = 13
+LATE_SELL_AVG = 14
+LATE_SELL_HIGH = 15
 
 class DatabaseWorker:
 
@@ -108,6 +126,12 @@ class DatabaseWorker:
         rows = self.c.fetchall()
         return rows
 
+    def get_all_rows(self):
+        sql = 'SELECT * FROM events;'
+        result = self.c.execute(sql)
+        rows = self.c.fetchall()
+        return rows
+
     def update(self, id, data):
         sql = 'UPDATE events SET '
         keys = list(data)
@@ -134,6 +158,7 @@ def main():
     """ Main entry point of the app """
     scrape()
     get_prices()
+    generate_html()
 
 
 def scrape():
@@ -196,10 +221,7 @@ def get_prices():
     base_url = 'https://min-api.cryptocompare.com/data/histohour?tsym=USD&limit=2000&aggregate=24&fsym='
     db = DatabaseWorker()
     rows = db.get_rows_without_prices()
-    ID_INDEX = 0
-    COIN_INDEX = 1
-    EVENT_DATE_INDEX = 2
-    POSTED_DATE_INDEX = 4
+
     current_date = datetime.datetime.utcnow()
     for row in rows:
         coin = row[COIN_INDEX]
@@ -219,8 +241,6 @@ def get_prices():
                     'late_sell_low': None,
                     'late_sell_high': None}
         for day in json.loads(data)['Data']:
-
-
 
             if (day['time'] == posted_date):
                 # initial buys
@@ -247,7 +267,114 @@ def get_prices():
 
 def generate_html():
     """ Generate HTML document with all the data from the database """
-    # TODO
+    print('Generating HTML')
+    db = DatabaseWorker()
+    rows = db.get_all_rows()
+    doc, tag, text = Doc().tagtext()
+    with tag('html'):
+        with tag('head'):
+            doc.stag('link', href='https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/css/bootstrap.min.css', type='text/css', rel='stylesheet')
+            doc.stag('link', href='https://cdn.datatables.net/1.10.16/css/jquery.dataTables.min.css', type='text/css', rel='stylesheet')
+            with tag('script', src='https://code.jquery.com/jquery-2.2.4.min.js', type='text/javascript'):
+                text()
+            with tag('script', src='https://cdn.datatables.net/1.10.16/js/jquery.dataTables.min.js', type='text/javascript'):
+                text()
+            with tag ('script', type='text/javascript'):
+                text("""
+
+                    $(document).ready(function(){
+                    $('#table').DataTable();
+                    });
+
+                 """)
+
+        with tag('body'):
+            with tag('div', klass='container-fluid'):
+                with tag('table', klass='table-striped', id='table'):
+                    with tag('tr'):
+                        with tag('th'):
+                            text('Coin')
+                        with tag('th'):
+                            text('Event Type')
+                        with tag('th'):
+                            text('Description')
+                        with tag('th'):
+                            text('Low Buy')
+                        with tag('th'):
+                            text('High Buy')
+                        with tag('th'):
+                            text('High Sell')
+                        with tag('th'):
+                            text('Low Multiple')
+                        with tag('th'):
+                            text('High Multiple')
+                        with tag('th'):
+                            text('Sell Late Low')
+                        with tag('th'):
+                            text('Sell Late High')
+                        with tag('th'):
+                            text('Late Low Multiple')
+                        with tag('th'):
+                            text('Late High Multiple')
+                        with tag('th'):
+                            text('Posted Date')
+                        with tag('th'):
+                            text('Event Date')
+                        with tag('th'):
+                            text('Sell Date')
+                    for row in rows:
+                        row = list(map(lambda x: '' if x is None else x, row))
+                        with tag('tr'):
+                            with tag('td'):
+                                text(row[COIN_INDEX])
+                            with tag('td'):
+                                text(row[EVENT_TYPE_INDEX])
+                            with tag('td'):
+                                text(row[DESCRIPTION_INDEX])
+                            with tag('td'):
+                                text(row[BUY_LOW_INDEX])
+                            with tag('td'):
+                                text(row[BUY_HIGH_INDEX])
+                            with tag('td'):
+                                text(row[SELL_HIGH_INDEX])
+                            with tag('td'):
+                                if (row[SELL_HIGH_INDEX] == '' or row[BUY_HIGH_INDEX] == ''):
+                                    text('')
+                                else:
+                                    text("{0:.2f}".format(row[SELL_HIGH_INDEX]/row[BUY_HIGH_INDEX]))
+                            with tag('td'):
+                                if (row[SELL_HIGH_INDEX] == '' or row[BUY_LOW_INDEX] == ''):
+                                    text('')
+                                else:
+                                    text("{0:.2f}".format(row[LATE_SELL_LOW]/row[BUY_LOW_INDEX]))
+                            with tag('td'):
+                                text(row[LATE_SELL_LOW])
+                            with tag('td'):
+                                text(row[LATE_SELL_HIGH])
+                            with tag('td'):
+                                if (row[LATE_SELL_HIGH] == '' or row[BUY_HIGH_INDEX] == ''):
+                                    text('')
+                                else:
+                                    text("{0:.2f}".format(row[LATE_SELL_HIGH]/row[BUY_HIGH_INDEX]))
+                            with tag('td'):
+                                if (row[LATE_SELL_HIGH] == '' or row[BUY_LOW_INDEX] == ''):
+                                    text('')
+                                else:
+                                    text("{0:.2f}".format(row[LATE_SELL_HIGH]/row[BUY_LOW_INDEX]))
+                            with tag('td'):
+                                text(datetime.datetime.fromtimestamp(row[POSTED_DATE_INDEX]).strftime('%Y-%m-%d'))
+                            with tag('td'):
+                                text(datetime.datetime.fromtimestamp(row[EVENT_DATE_INDEX]).strftime('%Y-%m-%d'))
+                            with tag('td'):
+                                if (row[SELL_DATE_INDEX] == ''):
+                                    text('')
+                                else:
+                                    text(datetime.datetime.fromtimestamp(row[SELL_DATE_INDEX]).strftime('%Y-%m-%d'))
+
+    file = open(os.path.join(os.path.dirname(__file__), 'index.html'),'w',  encoding='utf-8')
+    file.write(doc.getvalue())
+    file.close()
+
 
 if __name__ == "__main__":
     """ This is executed when run from the command line """
