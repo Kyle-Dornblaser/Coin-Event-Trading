@@ -8,6 +8,8 @@ __version__ = "0.1.0"
 __license__ = "MIT"
 
 from bs4 import BeautifulSoup
+import datetime
+import json
 import os
 import sqlite3
 import urllib.request
@@ -37,16 +39,16 @@ class DatabaseWorker:
             IF NOT EXISTS events (
              id integer PRIMARY KEY,
              coin text NOT NULL,
-             event_date text,
+             event_date integer,
              description text,
-             posted_date text,
+             posted_date integer,
              validation integer,
              event_type text,
              buy_low real,
              buy_avg real,
              buy_high real,
              sell_high real,
-             sell_date text,
+             sell_date integer,
              high_btc real,
              late_sell_low real,
              late_sell_avg real,
@@ -66,10 +68,11 @@ class DatabaseWorker:
 
             keys = list(data)
             values = list(data.values())
-            values = list(map(lambda x: "\'" + x + "\'", values))
+            values = list(map(lambda x: "\'{0}\'".format(x), values))
 
             sql += ', '.join(keys) + ') VALUES ('
             sql += ', '.join(values) + ');'
+
             self.c.execute(sql)
             self.conn.commit()
 
@@ -86,8 +89,7 @@ class DatabaseWorker:
             exclude_index = keys.index(exclude)
             del keys[exclude_index]
             del values[exclude_index]
-
-        values = list(map(lambda x: "\'" + x + "\'", values))
+        values = list(map(lambda x: "\'{0}\'".format(x), values))
 
         where_statement = []
         for i, val in enumerate(keys):
@@ -100,6 +102,27 @@ class DatabaseWorker:
 
         return len(rows) > 0
 
+    def get_rows_without_prices(self):
+        sql = 'SELECT * FROM events WHERE buy_low IS NULL;'
+        result = self.c.execute(sql)
+        rows = self.c.fetchall()
+        return rows
+
+    def update(self, id, data):
+        sql = 'UPDATE events SET '
+        keys = list(data)
+        values = list(data.values())
+        set_statement = []
+        for i, val in enumerate(keys):
+            if (values[i]):
+                set_statement.append("{0} = {1}".format(keys[i], values[i]))
+
+        sql += ','.join(set_statement)
+        sql += " WHERE id = {0};".format(id)
+        if (len(set_statement) > 0):
+            self.c.execute(sql)
+            self.conn.commit()
+
     def __del__(self):
         """ Close the database when the object is destroyed """
         # TODO replace with https://en.wikibooks.org/wiki/Python_Programming/Context_Managers
@@ -109,8 +132,8 @@ class DatabaseWorker:
 
 def main():
     """ Main entry point of the app """
-
     scrape()
+    get_prices()
 
 
 def scrape():
@@ -139,10 +162,11 @@ def scrape():
         up_to_date = False
         while not up_to_date:
             for item in scraper.find_all('div', class_='content-box-general'):
-                event_date = item.h5.strong.get_text()
+                time_offset = 60 * 60 * 5
+                event_date = datetime.datetime.strptime(item.h5.strong.get_text().replace('By ', '').strip(), '%d %B %Y').timestamp() - time_offset
                 coin = item.h5.next_sibling.next_sibling.strong.get_text()
-                description = item.h5.next_sibling.next_sibling.next_sibling.next_sibling.get_text()
-                posted_date = item.find('p', class_='added-date').get_text()
+                description = item.h5.next_sibling.next_sibling.next_sibling.next_sibling.get_text().strip()
+                posted_date = datetime.datetime.strptime(item.find('p', class_='added-date').get_text().replace('[Added ','').replace(']','').strip(), '%d %B %Y').timestamp() - time_offset
                 validation = item.find('div', class_='progress-bar').get('aria-valuenow')
                 data = {'event_date': event_date,
                         'coin': coin,
@@ -169,7 +193,57 @@ def scrape():
 
 def get_prices():
     """ Get prices for all past events """
-    # TODO
+    base_url = 'https://min-api.cryptocompare.com/data/histohour?tsym=USD&limit=2000&aggregate=24&fsym='
+    db = DatabaseWorker()
+    rows = db.get_rows_without_prices()
+    ID_INDEX = 0
+    COIN_INDEX = 1
+    EVENT_DATE_INDEX = 2
+    POSTED_DATE_INDEX = 4
+    current_date = datetime.datetime.utcnow()
+    for row in rows:
+        coin = row[COIN_INDEX]
+        coin_symbol = coin[coin.find("(")+1:coin.find(")")] # https://stackoverflow.com/questions/4894069/regular-expression-to-return-text-between-parenthesis
+
+
+        event_date = row[EVENT_DATE_INDEX]
+        posted_date = row[POSTED_DATE_INDEX]
+
+        response = urllib.request.urlopen(base_url + coin_symbol)
+        data = response.read().decode("utf-8")
+        record = {'buy_low': None,
+                    'buy_high': None,
+                    'sell_high': None,
+                    'sell_date': None,
+                    'high_btc': None,
+                    'late_sell_low': None,
+                    'late_sell_high': None}
+        for day in json.loads(data)['Data']:
+
+
+
+            if (day['time'] == posted_date):
+                # initial buys
+                record['buy_high'] = day['high']
+                record['buy_low'] = day['low']
+            elif (day['time'] > posted_date and day['time'] <= event_date):
+                # find date with highest sell and add the date, and high for that day
+                if (not record['sell_high'] or day['high'] > record['sell_high']):
+                    record['sell_high'] = day['high']
+                    record['sell_date'] = day['time']
+            elif (day['time'] == event_date + 86400):
+                # if you did not sell before the event, this is the price the day after
+                record['late_sell_high'] = day['high']
+                record['late_sell_low'] = day['low']
+            elif (day['time'] > event_date + 86400):
+                # break the loop since we are done with the days we need
+                break
+
+        db.update(row[ID_INDEX], record)
+
+
+
+    #print(current_date)
 
 def generate_html():
     """ Generate HTML document with all the data from the database """
